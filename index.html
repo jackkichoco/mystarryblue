@@ -10,6 +10,7 @@
 <!-- Firebase (댓글/좋아요용) — 사용하려면 FIREBASE-SETUP.md 안내대로 아래 firebaseConfig 값을 교체하세요 -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <style>
   :root{
@@ -253,6 +254,11 @@
   }
   .comment-anon{ font-size:12px; font-weight:700; color:var(--ink); }
   .comment-date{ font-size:11px; color:var(--sub); margin-left:auto; }
+  .comment-delete-btn{
+    background:none; border:none; cursor:pointer;
+    font-size:11px; color:#bbb; margin-left:8px; padding:0;
+  }
+  .comment-delete-btn:hover{ color:#e05555; }
   .comment-text{ font-size:13px; line-height:1.6; color:#444; white-space:pre-wrap; word-break:break-word; }
   .comment-empty{ font-size:12.5px; color:var(--sub); text-align:center; padding:20px 0; }
   .comment-notice{ font-size:11.5px; color:#bbb; text-align:center; padding:16px 0; line-height:1.6; }
@@ -453,12 +459,12 @@
   // Firebase (좋아요 + 댓글) — FIREBASE-SETUP.md 안내대로 설정하세요
   // =========================================================
   const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_PROJECT.appspot.com",
-    messagingSenderId: "YOUR_SENDER_ID",
-    appId: "YOUR_APP_ID"
+    apiKey: "AIzaSyAlJsj_jkIsYYYMFDJMlunZ3dixl9espl8",
+    authDomain: "mystarryblue.firebaseapp.com",
+    projectId: "mystarryblue",
+    storageBucket: "mystarryblue.firebasestorage.app",
+    messagingSenderId: "161338063149",
+    appId: "1:161338063149:web:0aad36ebed2e995a4d7ba4"
   };
 
   const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY";
@@ -483,29 +489,44 @@
   } else {
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-    const likeDocRef = db.collection('meta').doc('likes');
+    const likesRef = db.collection('likes');
     const commentsRef = db.collection('comments');
-    const LIKED_KEY = 'blueLikeStars_liked';
+    let myUid = null;
 
-    likeDocRef.get().then(doc=>{
-      likeCountEl.textContent = doc.exists ? (doc.data().count||0) : 0;
-    });
-    if(localStorage.getItem(LIKED_KEY)==='1'){
-      likeBtn.classList.add('liked'); likeBtn.textContent='♥';
-    }
-    likeBtn.addEventListener('click', ()=>{
-      if(localStorage.getItem(LIKED_KEY)==='1') return;
-      db.runTransaction(tx=>{
-        return tx.get(likeDocRef).then(doc=>{
-          const cur = doc.exists ? (doc.data().count||0) : 0;
-          tx.set(likeDocRef, {count: cur+1}, {merge:true});
-          return cur+1;
+    // 익명 로그인: 사람마다 고유 uid가 발급됨 — 댓글 삭제 권한 + 좋아요 중복 방지에 사용
+    firebase.auth().signInAnonymously().catch(()=>{});
+    firebase.auth().onAuthStateChanged(user=>{
+      myUid = user ? user.uid : null;
+      if(myUid){
+        // 이미 좋아요를 누른 적 있는지 서버 기준으로 확인 (내 uid 문서가 존재하는지로 판단)
+        likesRef.doc(myUid).get().then(doc=>{
+          if(doc.exists){
+            likeBtn.classList.add('liked');
+            likeBtn.textContent='♥';
+            likeBtn.disabled = true;
+          }
         });
-      }).then(newCount=>{
-        likeCountEl.textContent = newCount;
-        likeBtn.classList.add('liked'); likeBtn.textContent='♥';
-        localStorage.setItem(LIKED_KEY,'1');
-      });
+      }
+    });
+
+    // 좋아요 총 개수 = likes 컬렉션의 문서 개수 (실시간 반영)
+    likesRef.onSnapshot(snapshot=>{
+      likeCountEl.textContent = snapshot.size;
+    });
+
+    likeBtn.addEventListener('click', ()=>{
+      if(!myUid || likeBtn.disabled) return;
+      likeBtn.disabled = true;
+      // 문서 ID를 내 uid로 고정 — 이미 같은 uid 문서가 있으면 Firestore 규칙(update 금지)에 의해 반드시 실패함
+      likesRef.doc(myUid).set({ likedAt: firebase.firestore.FieldValue.serverTimestamp() })
+        .then(()=>{
+          likeBtn.classList.add('liked');
+          likeBtn.textContent='♥';
+        })
+        .catch(()=>{
+          likeBtn.classList.add('liked');
+          likeBtn.textContent='♥';
+        });
     });
 
     function renderComments(snapshot){
@@ -518,11 +539,13 @@
         const data = doc.data();
         const item = document.createElement('div');
         item.className = 'comment-item';
+        const isMine = myUid && data.authorUid === myUid;
         item.innerHTML = `
           <div class="comment-meta">
             <div class="comment-avatar">?</div>
             <div class="comment-anon">익명</div>
             <div class="comment-date">${formatDate(data.createdAt)}</div>
+            ${isMine ? '<button class="comment-delete-btn" data-id="'+doc.id+'">삭제</button>' : ''}
           </div>
           <div class="comment-text"></div>
         `;
@@ -535,12 +558,23 @@
       commentList.innerHTML = '<div class="comment-notice">댓글을 불러오지 못했습니다.<br>Firestore 보안 규칙을 확인해주세요.</div>';
     });
 
+    commentList.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.comment-delete-btn');
+      if(!btn) return;
+      if(!confirm('이 댓글을 삭제할까요?')) return;
+      commentsRef.doc(btn.dataset.id).delete().catch(()=>{
+        alert('삭제에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      });
+    });
+
     commentSubmit.addEventListener('click', ()=>{
       const text = commentInput.value.trim();
       if(!text) return;
+      if(!myUid){ alert('잠시 후 다시 시도해주세요.'); return; }
       commentSubmit.disabled = true;
       commentsRef.add({
         text: text,
+        authorUid: myUid,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       }).then(()=>{
         commentInput.value = '';
