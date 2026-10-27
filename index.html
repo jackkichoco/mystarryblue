@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>별처럼 푸른색</title>
+<meta name="description" content="별처럼 푸른색">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSans.css" type="text/css"/>
+
+<!-- Firebase (댓글/좋아요용) — 사용하려면 FIREBASE-SETUP.md 안내대로 아래 firebaseConfig 값을 교체하세요 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --bg:#ffffff;
+    --bg-soft:#f6f6f6;
+    --line:#e7e7e7;
+    --ink:#2b2b2b;
+    --sub:#8f8f8f;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    height:100%;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Gmarket Sans','Pretendard',-apple-system,sans-serif;
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+  #app{position:fixed;inset:0;background:var(--bg);}
+
+  /* ---------- 1. TITLE SPLASH ---------- */
+  #splash{
+    position:fixed;inset:0;
+    background:var(--bg);
+    display:flex;align-items:center;justify-content:center;
+    z-index:200;
+  }
+  #splash .title{
+    font-size:clamp(22px,6vw,32px);
+    font-weight:700;
+    letter-spacing:-0.5px;
+    color:var(--ink);
+    opacity:0;
+    transform:translateY(6px);
+    animation: titleIn 1.3s ease forwards, titleOut 1.4s ease 2.1s forwards;
+  }
+  @keyframes titleIn{ to{opacity:1;transform:translateY(0);} }
+  @keyframes titleOut{ to{opacity:0;} }
+  #splash.hide{ animation: splashHide .6s ease forwards; pointer-events:none; }
+  @keyframes splashHide{ to{opacity:0;visibility:hidden;} }
+
+  /* ---------- 2. LOADING COVER POPUP ---------- */
+  #coverPop{
+    position:fixed;inset:0;
+    background:var(--bg);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    z-index:150;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .6s ease;
+  }
+  #coverPop.show{opacity:1;pointer-events:auto;}
+  #coverPop.hide{opacity:0;pointer-events:none;}
+  #coverPop img{ width:100%;height:100%; object-fit:contain; background:var(--bg); }
+  #coverPop .tap-hint{
+    position:absolute; bottom:40px;left:0;right:0; text-align:center;
+    font-size:12px; color:var(--sub); letter-spacing:.5px;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:.4;} 50%{opacity:1;} }
+
+  /* ---------- 3. LIBRARY (home: title, synopsis, start button) ---------- */
+  #library{
+    position:fixed;inset:0;
+    background:var(--bg);
+    display:flex;flex-direction:column;
+    opacity:0;pointer-events:none;
+    transition:opacity .4s ease;
+    z-index:100;
+  }
+  #library.show{opacity:1;pointer-events:auto;}
+  .lib-header{
+    padding:30px 20px 20px; text-align:center;
+    background:var(--bg-soft); border-bottom:1px solid var(--line);
+  }
+  .lib-header h1{ font-size:19px; font-weight:700; letter-spacing:-0.3px; color:var(--ink); }
+  .lib-header p{ margin-top:4px; font-size:11px; color:var(--sub); letter-spacing:.5px; }
+  .lib-body{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    display:flex; flex-direction:column; align-items:center;
+    padding:36px 24px 60px; gap:18px;
+  }
+  .lib-cover-thumb{
+    width:100%; max-width:380px; border-radius:10px; overflow:hidden;
+    border:1px solid var(--line); box-shadow:0 6px 20px rgba(0,0,0,.05);
+  }
+  .lib-cover-thumb img{width:100%;height:auto;display:block;}
+
+  .lib-catchphrase{
+    max-width:380px; width:100%; text-align:center;
+    font-size:clamp(18px,5vw,22px); font-weight:700;
+    line-height:1.6; color:var(--ink); letter-spacing:-0.2px;
+    margin-top:10px;
+  }
+  .lib-synopsis{
+    width:clamp(280px,94vw,460px);
+    text-align:left;
+    white-space:nowrap;
+    font-size:clamp(8px,2.7vw,13px);
+    line-height:2;
+    color:#555;
+    letter-spacing:0.1px;
+    margin-top:10px;
+    padding:0 6px;
+  }
+
+  .lib-start-btn{
+    margin-top:10px; padding:14px 50px; background:var(--ink); color:#fff;
+    border:none; border-radius:999px; font-family:inherit; font-size:15px;
+    font-weight:700; letter-spacing:.5px; cursor:pointer;
+  }
+
+  /* ---------- 4. VIEWER ---------- */
+  #viewer{
+    position:fixed;inset:0; background:var(--bg);
+    opacity:0;pointer-events:none; transition:opacity .35s ease; z-index:120;
+  }
+  #viewer.show{opacity:1;pointer-events:auto;}
+
+  .ui-top{
+    position:absolute;top:0;left:0;right:0;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;
+    background:linear-gradient(to bottom, rgba(255,255,255,.92), rgba(255,255,255,0));
+    z-index:20; transition:opacity .25s ease;
+  }
+  .ui-top button{
+    background:var(--bg-soft); border:1px solid var(--line); color:var(--ink);
+    width:38px;height:38px; border-radius:50%; font-size:16px; cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .ui-top .page-indicator{
+    color:var(--ink); font-size:13px; font-weight:600; letter-spacing:.5px;
+    background:var(--bg-soft); border:1px solid var(--line);
+    padding:6px 14px; border-radius:999px;
+  }
+
+  .page-track{
+    position:absolute;inset:0; display:flex; height:100%; width:100%;
+    background:var(--bg); transition:transform .4s cubic-bezier(.22,.61,.36,1);
+    will-change:transform;
+  }
+  .page-slide{
+    position:relative; flex:0 0 100%; height:100%;
+    display:flex;align-items:center;justify-content:center; background:var(--bg);
+  }
+  .page-slide img{
+    max-width:100%; max-height:100%; width:auto;height:auto;
+    object-fit:contain; user-select:none; -webkit-user-drag:none;
+  }
+
+  .ui-bottom{
+    position:absolute;bottom:0;left:0;right:0;
+    display:flex;align-items:center;justify-content:center;
+    padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(255,255,255,.92), rgba(255,255,255,0));
+    z-index:20; transition:opacity .25s ease;
+  }
+  .progress-wrap{ width:min(70%,320px); height:3px; background:var(--line); border-radius:3px; overflow:hidden; }
+  .progress-fill{ height:100%; background:var(--ink); border-radius:3px; transition:width .3s ease; }
+
+  .nav-zone{ position:absolute;top:0;bottom:0;width:30%;z-index:15; }
+  .nav-zone.left{left:0;}
+  .nav-zone.right{right:0;}
+
+  /* Edge arrow hints: large chevrons indicating tap-to-turn */
+  .edge-arrow{
+    position:absolute; top:50%; transform:translateY(-50%);
+    width:56px; height:56px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:48px; line-height:1; color:var(--ink); opacity:.55;
+    background:rgba(0,0,0,.04);
+    border-radius:50%;
+    pointer-events:none; z-index:16;
+    transition:opacity .25s ease;
+    font-family:Georgia, 'Times New Roman', serif;
+  }
+  .edge-arrow.left{ left:6px; }
+  .edge-arrow.right{ right:6px; }
+
+  .hint-tap{
+    position:absolute; bottom:70px;left:0;right:0; text-align:center;
+    color:var(--sub); font-size:11px; letter-spacing:.5px;
+    pointer-events:none; z-index:20; transition:opacity .25s ease;
+  }
+
+  #viewer.ui-hidden .ui-top,
+  #viewer.ui-hidden .ui-bottom,
+  #viewer.ui-hidden .hint-tap,
+  #viewer.ui-hidden .edge-arrow{
+    opacity:0; pointer-events:none;
+  }
+
+  /* ---------- 5. END SLIDE: like + comments ---------- */
+  .end-slide{
+    flex:0 0 100%;height:100%;
+    display:flex;flex-direction:column;align-items:center;
+    gap:0; color:var(--ink); background:var(--bg);
+    overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:60px 20px 40px;
+  }
+  .end-slide .end-msg{ font-size:14px;color:var(--sub);letter-spacing:.3px; margin-bottom:28px; }
+
+  .like-box{
+    display:flex; flex-direction:column; align-items:center; gap:8px;
+    margin-bottom:36px;
+  }
+  .like-btn{
+    width:64px;height:64px; border-radius:50%;
+    border:1.5px solid var(--line); background:var(--bg-soft);
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px; cursor:pointer; transition:all .2s ease;
+  }
+  .like-btn.liked{ background:#2b2b2b; border-color:#2b2b2b; }
+  .like-count{ font-size:13px; color:var(--sub); font-weight:600; }
+
+  .comment-section{ width:100%; max-width:420px; }
+  .comment-title{ font-size:14px; font-weight:700; margin-bottom:14px; color:var(--ink); }
+  .comment-form{ display:flex; flex-direction:column; gap:8px; margin-bottom:28px; }
+  .comment-form textarea{
+    width:100%; min-height:80px; resize:vertical;
+    border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; font-family:inherit; font-size:13px; color:var(--ink);
+    background:var(--bg-soft); outline:none;
+  }
+  .comment-form textarea:focus{ border-color:#bbb; }
+  .comment-submit{
+    align-self:flex-end;
+    padding:9px 22px; background:var(--ink); color:#fff; border:none;
+    border-radius:999px; font-family:inherit; font-size:12.5px; font-weight:700;
+    cursor:pointer;
+  }
+  .comment-submit:disabled{ opacity:.4; cursor:not-allowed; }
+  .comment-list{ display:flex; flex-direction:column; gap:16px; width:100%; }
+  .comment-item{ border-bottom:1px solid var(--line); padding-bottom:14px; }
+  .comment-meta{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .comment-avatar{
+    width:22px;height:22px;border-radius:50%;background:var(--bg-soft);
+    border:1px solid var(--line); display:flex;align-items:center;justify-content:center;
+    font-size:11px; color:var(--sub);
+  }
+  .comment-anon{ font-size:12px; font-weight:700; color:var(--ink); }
+  .comment-date{ font-size:11px; color:var(--sub); margin-left:auto; }
+  .comment-text{ font-size:13px; line-height:1.6; color:#444; white-space:pre-wrap; word-break:break-word; }
+  .comment-empty{ font-size:12.5px; color:var(--sub); text-align:center; padding:20px 0; }
+  .comment-notice{ font-size:11.5px; color:#bbb; text-align:center; padding:16px 0; line-height:1.6; }
+
+  .end-slide .back-home-btn{
+    margin-top:36px; padding:12px 36px;
+    background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:999px;
+    font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- 1. TITLE SPLASH -->
+  <div id="splash">
+    <div class="title">별처럼 푸른색</div>
+  </div>
+
+  <!-- 2. LOADING IMAGE POPUP -->
+  <div id="coverPop">
+    <img src="images/cover.jpg" alt="별처럼 푸른색" />
+    <div class="tap-hint">화면을 탭하세요</div>
+  </div>
+
+  <!-- 3. LIBRARY / HOME -->
+  <div id="library">
+    <div class="lib-header">
+      <h1>별처럼 푸른색</h1>
+      <p>총 15페이지</p>
+    </div>
+    <div class="lib-body">
+      <div class="lib-cover-thumb">
+        <img src="images/cover.jpg" alt="표지" />
+      </div>
+      <div class="lib-catchphrase">“언제나 함께할 친구가 필요해”</div>
+      <div class="lib-synopsis">성격도 꿈도 정반대이지만 늘 함께인 두 고등학생.<br>
+학교가 끝나고 각자의 길로 헤어지기 전, 함께 학교 뒷산을 오른다.<br>
+되지빠뀌새의 둥지, 나무줄기에 몸을 숨긴 딱정벌레와 숨이 탁 트이는 풍경.<br>
+조금만 오르더라도 일상과는 다른 풍경이 펼쳐지는 곳.<br>
+평소에 꺼내보지 못했던 솔직한 마음이, 이곳에서는 터져나오기 시작한다.</div>
+      <button class="lib-start-btn" id="startReadBtn">읽기 시작</button>
+    </div>
+  </div>
+
+  <!-- 4. FULLSCREEN PAGE VIEWER -->
+  <div id="viewer">
+    <div class="ui-top">
+      <button id="closeViewerBtn" aria-label="닫기">✕</button>
+      <div class="page-indicator"><span id="curPage">1</span> / <span id="totalPages">15</span></div>
+      <button id="dummyBtn" style="opacity:0;pointer-events:none;">·</button>
+    </div>
+
+    <div class="page-track" id="pageTrack"></div>
+
+    <div class="nav-zone left" id="zoneLeft"></div>
+    <div class="nav-zone right" id="zoneRight"></div>
+    <div class="edge-arrow left" id="arrowLeft">‹</div>
+    <div class="edge-arrow right" id="arrowRight">›</div>
+
+    <div class="hint-tap">화면을 탭하면 UI가 사라집니다 · 좌우를 눌러 넘기세요</div>
+
+    <div class="ui-bottom">
+      <div class="progress-wrap"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const TOTAL_PAGES = 15;
+  const pageTrack = document.getElementById('pageTrack');
+  const curPageEl = document.getElementById('curPage');
+  const totalPagesEl = document.getElementById('totalPages');
+  const progressFill = document.getElementById('progressFill');
+  const viewer = document.getElementById('viewer');
+  const splash = document.getElementById('splash');
+  const coverPop = document.getElementById('coverPop');
+  const library = document.getElementById('library');
+  const arrowLeft = document.getElementById('arrowLeft');
+  const arrowRight = document.getElementById('arrowRight');
+
+  totalPagesEl.textContent = TOTAL_PAGES;
+
+  // ---- Build page slides ----
+  let current = 0;
+  for(let i=1;i<=TOTAL_PAGES;i++){
+    const slide = document.createElement('div');
+    slide.className='page-slide';
+    const img = document.createElement('img');
+    img.alt = '페이지 '+i;
+    img.loading = (i<=2)?'eager':'lazy';
+    img.src = 'images/page-'+String(i).padStart(2,'0')+'.jpg';
+    slide.appendChild(img);
+    pageTrack.appendChild(slide);
+  }
+
+  // ---- End slide: like + comments ----
+  const endSlide = document.createElement('div');
+  endSlide.className='end-slide';
+  endSlide.innerHTML = `
+    <p class="end-msg">마지막 페이지입니다</p>
+    <div class="like-box">
+      <button class="like-btn" id="likeBtn">♡</button>
+      <div class="like-count" id="likeCount">0</div>
+    </div>
+    <div class="comment-section">
+      <div class="comment-title">댓글</div>
+      <div class="comment-form">
+        <textarea id="commentInput" maxlength="300" placeholder="익명으로 댓글을 남겨보세요"></textarea>
+        <button class="comment-submit" id="commentSubmit">등록</button>
+      </div>
+      <div class="comment-list" id="commentList"></div>
+    </div>
+    <button class="back-home-btn" id="backToHomeBtn">처음으로</button>
+  `;
+  pageTrack.appendChild(endSlide);
+
+  function renderPosition(){
+    pageTrack.style.transform = 'translateX(-'+(current*100)+'%)';
+    const shown = Math.min(current+1, TOTAL_PAGES);
+    curPageEl.textContent = shown;
+    progressFill.style.width = ((shown)/TOTAL_PAGES*100)+'%';
+    arrowLeft.style.visibility = current===0 ? 'hidden':'visible';
+  }
+
+  // ---- 1) Title splash -> cover popup ----
+  setTimeout(()=>{
+    splash.classList.add('hide');
+    coverPop.classList.add('show');
+  }, 3500);
+
+  function goToLibrary(){
+    coverPop.classList.add('hide');
+    setTimeout(()=>{ library.classList.add('show'); }, 300);
+  }
+  coverPop.addEventListener('click', goToLibrary);
+  let coverAutoTimer = setTimeout(goToLibrary, 6500);
+  coverPop.addEventListener('click', ()=>clearTimeout(coverAutoTimer));
+
+  function openViewer(){
+    library.classList.remove('show');
+    viewer.classList.add('show');
+    viewer.classList.remove('ui-hidden');
+    renderPosition();
+  }
+  function showLibrary(){
+    viewer.classList.remove('show');
+    library.classList.add('show');
+    current = 0;
+    renderPosition();
+  }
+
+  document.getElementById('startReadBtn').addEventListener('click', openViewer);
+  document.getElementById('closeViewerBtn').addEventListener('click', showLibrary);
+  pageTrack.addEventListener('click', (e)=>{
+    if(e.target && e.target.id==='backToHomeBtn'){ showLibrary(); }
+  });
+
+  function next(){ if(current < TOTAL_PAGES){ current++; renderPosition(); } }
+  function prev(){ if(current > 0){ current--; renderPosition(); } }
+
+  document.getElementById('zoneRight').addEventListener('click', (e)=>{ e.stopPropagation(); next(); });
+  document.getElementById('zoneLeft').addEventListener('click', (e)=>{ e.stopPropagation(); prev(); });
+
+  viewer.addEventListener('click', (e)=>{
+    if(e.target.closest('.nav-zone') || e.target.closest('.ui-top') || e.target.closest('.ui-bottom') || e.target.closest('.comment-section') || e.target.closest('.like-box') || e.target.closest('.back-home-btn')) return;
+    viewer.classList.toggle('ui-hidden');
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if(!viewer.classList.contains('show')) return;
+    if(e.key==='ArrowRight') next();
+    if(e.key==='ArrowLeft') prev();
+    if(e.key==='Escape') showLibrary();
+  });
+
+  let touchStartX = 0, touchStartY=0, touchMoved=false;
+  viewer.addEventListener('touchstart', (e)=>{
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchMoved=false;
+  }, {passive:true});
+  viewer.addEventListener('touchmove', ()=>{ touchMoved=true; }, {passive:true});
+  viewer.addEventListener('touchend', (e)=>{
+    if(!touchMoved) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
+      if(dx < 0) next(); else prev();
+    }
+  }, {passive:true});
+
+  document.addEventListener('gesturestart', e=> e.preventDefault());
+
+  // =========================================================
+  // Firebase (좋아요 + 댓글) — FIREBASE-SETUP.md 안내대로 설정하세요
+  // =========================================================
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const isConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY";
+  const likeBtn = document.getElementById('likeBtn');
+  const likeCountEl = document.getElementById('likeCount');
+  const commentInput = document.getElementById('commentInput');
+  const commentSubmit = document.getElementById('commentSubmit');
+  const commentList = document.getElementById('commentList');
+
+  function formatDate(ts){
+    if(!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0');
+    return y+'.'+m+'.'+day;
+  }
+
+  if(!isConfigured){
+    commentList.innerHTML = '<div class="comment-notice">댓글/좋아요 기능을 켜려면<br>FIREBASE-SETUP.md 안내를 따라<br>Firebase 설정을 완료해주세요.</div>';
+    commentInput.disabled = true;
+    commentSubmit.disabled = true;
+    likeBtn.disabled = true;
+  } else {
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const likeDocRef = db.collection('meta').doc('likes');
+    const commentsRef = db.collection('comments');
+    const LIKED_KEY = 'blueLikeStars_liked';
+
+    likeDocRef.get().then(doc=>{
+      likeCountEl.textContent = doc.exists ? (doc.data().count||0) : 0;
+    });
+    if(localStorage.getItem(LIKED_KEY)==='1'){
+      likeBtn.classList.add('liked'); likeBtn.textContent='♥';
+    }
+    likeBtn.addEventListener('click', ()=>{
+      if(localStorage.getItem(LIKED_KEY)==='1') return;
+      db.runTransaction(tx=>{
+        return tx.get(likeDocRef).then(doc=>{
+          const cur = doc.exists ? (doc.data().count||0) : 0;
+          tx.set(likeDocRef, {count: cur+1}, {merge:true});
+          return cur+1;
+        });
+      }).then(newCount=>{
+        likeCountEl.textContent = newCount;
+        likeBtn.classList.add('liked'); likeBtn.textContent='♥';
+        localStorage.setItem(LIKED_KEY,'1');
+      });
+    });
+
+    function renderComments(snapshot){
+      if(snapshot.empty){
+        commentList.innerHTML = '<div class="comment-empty">첫 댓글을 남겨보세요</div>';
+        return;
+      }
+      commentList.innerHTML = '';
+      snapshot.forEach(doc=>{
+        const data = doc.data();
+        const item = document.createElement('div');
+        item.className = 'comment-item';
+        item.innerHTML = `
+          <div class="comment-meta">
+            <div class="comment-avatar">?</div>
+            <div class="comment-anon">익명</div>
+            <div class="comment-date">${formatDate(data.createdAt)}</div>
+          </div>
+          <div class="comment-text"></div>
+        `;
+        item.querySelector('.comment-text').textContent = data.text || '';
+        commentList.appendChild(item);
+      });
+    }
+
+    commentsRef.orderBy('createdAt','desc').limit(100).onSnapshot(renderComments, err=>{
+      commentList.innerHTML = '<div class="comment-notice">댓글을 불러오지 못했습니다.<br>Firestore 보안 규칙을 확인해주세요.</div>';
+    });
+
+    commentSubmit.addEventListener('click', ()=>{
+      const text = commentInput.value.trim();
+      if(!text) return;
+      commentSubmit.disabled = true;
+      commentsRef.add({
+        text: text,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(()=>{
+        commentInput.value = '';
+        commentSubmit.disabled = false;
+      }).catch(()=>{
+        commentSubmit.disabled = false;
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
