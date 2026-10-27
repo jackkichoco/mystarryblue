@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>별처럼 푸른색</title>
 <meta name="description" content="별처럼 푸른색">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSans.css" type="text/css"/>
@@ -172,25 +172,12 @@
   .progress-wrap{ width:min(70%,320px); height:3px; background:var(--line); border-radius:3px; overflow:hidden; }
   .progress-fill{ height:100%; background:var(--ink); border-radius:3px; transition:width .3s ease; }
 
-  /* 수정 1: nav-zone 폭을 30% -> 16%로 축소 (중앙 안전지대 확보) */
+  /* nav-zone: 좌우 탭 영역 (댓글/버튼 위를 가리지 않도록 폭 축소 유지) */
   .nav-zone{ position:absolute;top:0;bottom:0;width:16%;z-index:15; }
   .nav-zone.left{left:0;}
   .nav-zone.right{right:0;}
 
-  /* 수정 2: 화살표 크기 축소 + 더 은은하게 */
-  .edge-arrow{
-    position:absolute; top:50%; transform:translateY(-50%);
-    width:40px; height:40px;
-    display:flex; align-items:center; justify-content:center;
-    font-size:30px; line-height:1; color:var(--ink); opacity:.38;
-    background:rgba(0,0,0,.03);
-    border-radius:50%;
-    pointer-events:none; z-index:16;
-    transition:opacity .25s ease;
-    font-family:Georgia, 'Times New Roman', serif;
-  }
-  .edge-arrow.left{ left:6px; }
-  .edge-arrow.right{ right:6px; }
+  /* 좌우 화살표는 모두 제거함 (한쪽만 지우면 비대칭이라 양쪽 다 삭제, 탭 영역+스와이프만 사용) */
 
   .hint-tap{
     position:absolute; bottom:70px;left:0;right:0; text-align:center;
@@ -200,8 +187,7 @@
 
   #viewer.ui-hidden .ui-top,
   #viewer.ui-hidden .ui-bottom,
-  #viewer.ui-hidden .hint-tap,
-  #viewer.ui-hidden .edge-arrow{
+  #viewer.ui-hidden .hint-tap{
     opacity:0; pointer-events:none;
   }
 
@@ -247,7 +233,7 @@
   .comment-submit:disabled{ opacity:.4; cursor:not-allowed; }
   .comment-list{ display:flex; flex-direction:column; gap:16px; width:100%; }
   .comment-item{ border-bottom:1px solid var(--line); padding-bottom:14px; }
-  .comment-meta{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .comment-meta{ display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
   .comment-avatar{
     width:22px;height:22px;border-radius:50%;background:var(--bg-soft);
     border:1px solid var(--line); display:flex;align-items:center;justify-content:center;
@@ -317,8 +303,6 @@
 
     <div class="nav-zone left" id="zoneLeft"></div>
     <div class="nav-zone right" id="zoneRight"></div>
-    <div class="edge-arrow left" id="arrowLeft">‹</div>
-    <div class="edge-arrow right" id="arrowRight">›</div>
 
     <div class="hint-tap">화면을 탭하면 UI가 사라집니다 · 좌우를 눌러 넘기세요</div>
 
@@ -340,8 +324,6 @@
   const splash = document.getElementById('splash');
   const coverPop = document.getElementById('coverPop');
   const library = document.getElementById('library');
-  const arrowLeft = document.getElementById('arrowLeft');
-  const arrowRight = document.getElementById('arrowRight');
   const zoneLeft = document.getElementById('zoneLeft');
   const zoneRight = document.getElementById('zoneRight');
 
@@ -379,32 +361,80 @@
   `;
   pageTrack.appendChild(endSlide);
 
-  // 수정 1: 마지막(좋아요·댓글) 화면에서는 좌우 nav-zone이 클릭을 가로채지 않도록 처리
+  // ----------------------------------------------------
+  // 새로고침해도 같은 페이지에 머무르게 하는 상태 저장/복원
+  // ----------------------------------------------------
+  function saveState(view, page){
+    try{
+      sessionStorage.setItem('sb_view', view);
+      sessionStorage.setItem('sb_page', String(page));
+    }catch(e){ /* 저장 불가 환경이면 그냥 무시 */ }
+  }
+
   function renderPosition(){
     pageTrack.style.transform = 'translateX(-'+(current*100)+'%)';
     const shown = Math.min(current+1, TOTAL_PAGES);
     curPageEl.textContent = shown;
     progressFill.style.width = ((shown)/TOTAL_PAGES*100)+'%';
-    const atStart = current===0;
     const atEnd = current===TOTAL_PAGES;
-    arrowLeft.style.visibility = atStart ? 'hidden':'visible';
-    arrowRight.style.visibility = atEnd ? 'hidden':'visible';
     zoneLeft.style.pointerEvents = atEnd ? 'none' : 'auto';
     zoneRight.style.pointerEvents = atEnd ? 'none' : 'auto';
+
+    if(viewer.classList.contains('show')){
+      saveState('viewer', current);
+    }
   }
 
-  setTimeout(()=>{
-    splash.classList.add('hide');
-    coverPop.classList.add('show');
-  }, 3500);
+  // 화면 확대(핀치 줌) 중인지 확인 -> 확대 중엔 스와이프/탭으로 페이지가 넘어가지 않도록
+  function isZoomed(){
+    return !!(window.visualViewport && window.visualViewport.scale > 1.05);
+  }
 
   function goToLibrary(){
     coverPop.classList.add('hide');
-    setTimeout(()=>{ library.classList.add('show'); }, 300);
+    setTimeout(()=>{
+      library.classList.add('show');
+      saveState('library', 0);
+    }, 300);
   }
-  coverPop.addEventListener('click', goToLibrary);
-  let coverAutoTimer = setTimeout(goToLibrary, 6500);
-  coverPop.addEventListener('click', ()=>clearTimeout(coverAutoTimer));
+
+  function startIntroSequence(){
+    setTimeout(()=>{
+      splash.classList.add('hide');
+      coverPop.classList.add('show');
+    }, 3500);
+    coverPop.addEventListener('click', goToLibrary);
+    let coverAutoTimer = setTimeout(goToLibrary, 6500);
+    coverPop.addEventListener('click', ()=>clearTimeout(coverAutoTimer));
+  }
+
+  function restoreState(){
+    let savedView = null, savedPage = 0;
+    try{
+      savedView = sessionStorage.getItem('sb_view');
+      savedPage = parseInt(sessionStorage.getItem('sb_page')||'0',10);
+    }catch(e){}
+
+    if(savedView === 'viewer'){
+      splash.style.display='none';
+      coverPop.style.display='none';
+      current = Math.min(Math.max(savedPage,0), TOTAL_PAGES);
+      viewer.classList.add('show');
+      viewer.classList.remove('ui-hidden');
+      renderPosition();
+      return true;
+    } else if(savedView === 'library'){
+      splash.style.display='none';
+      coverPop.style.display='none';
+      library.classList.add('show');
+      return true;
+    }
+    return false;
+  }
+
+  if(!restoreState()){
+    startIntroSequence();
+  }
 
   function openViewer(){
     library.classList.remove('show');
@@ -416,6 +446,7 @@
     viewer.classList.remove('show');
     library.classList.add('show');
     current = 0;
+    saveState('library', 0);
     renderPosition();
   }
 
@@ -425,14 +456,15 @@
     if(e.target && e.target.id==='backToHomeBtn'){ showLibrary(); }
   });
 
-  function next(){ if(current < TOTAL_PAGES){ current++; renderPosition(); } }
-  function prev(){ if(current > 0){ current--; renderPosition(); } }
+  function next(){ if(isZoomed()) return; if(current < TOTAL_PAGES){ current++; renderPosition(); } }
+  function prev(){ if(isZoomed()) return; if(current > 0){ current--; renderPosition(); } }
 
   zoneRight.addEventListener('click', (e)=>{ e.stopPropagation(); next(); });
   zoneLeft.addEventListener('click', (e)=>{ e.stopPropagation(); prev(); });
 
   viewer.addEventListener('click', (e)=>{
     if(e.target.closest('.nav-zone') || e.target.closest('.ui-top') || e.target.closest('.ui-bottom') || e.target.closest('.comment-section') || e.target.closest('.like-box') || e.target.closest('.back-home-btn')) return;
+    if(isZoomed()) return;
     viewer.classList.toggle('ui-hidden');
   });
 
@@ -452,6 +484,7 @@
   viewer.addEventListener('touchmove', ()=>{ touchMoved=true; }, {passive:true});
   viewer.addEventListener('touchend', (e)=>{
     if(!touchMoved) return;
+    if(isZoomed()) return; // 확대된 상태에서는 손가락을 움직여도 페이지가 넘어가지 않음
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
     if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
@@ -480,11 +513,13 @@
   const commentSubmit = document.getElementById('commentSubmit');
   const commentList = document.getElementById('commentList');
 
+  // 날짜 + 시:분까지 표시 (댓글을 단 시각 확인용)
   function formatDate(ts){
     if(!ts) return '';
     const d = ts.toDate ? ts.toDate() : new Date(ts);
     const y = d.getFullYear(); const m = String(d.getMonth()+1).padStart(2,'0'); const day = String(d.getDate()).padStart(2,'0');
-    return y+'.'+m+'.'+day;
+    const hh = String(d.getHours()).padStart(2,'0'); const mm = String(d.getMinutes()).padStart(2,'0');
+    return y+'.'+m+'.'+day+' '+hh+':'+mm;
   }
 
   if(!isConfigured){
